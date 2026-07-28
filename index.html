@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Phòng tranh 3D</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#0f0e0c;
+    font-family:"Segoe UI",-apple-system,Roboto,"Helvetica Neue",sans-serif;
+    -webkit-user-select:none; user-select:none; touch-action:none; }
+  canvas { display:block; }
+
+  #crosshair { position:fixed; top:50%; left:50%; width:20px; height:20px;
+    transform:translate(-50%,-50%); pointer-events:none; z-index:5; opacity:.5; }
+  #crosshair::before, #crosshair::after { content:""; position:absolute; background:#fff; }
+  #crosshair::before { top:50%; left:0; width:100%; height:1.5px; transform:translateY(-50%); }
+  #crosshair::after { left:50%; top:0; height:100%; width:1.5px; transform:translateX(-50%); }
+
+  #pad { position:fixed; left:20px; bottom:24px; z-index:10;
+    display:grid; grid-template-columns:repeat(3,52px); grid-template-rows:repeat(2,52px);
+    gap:8px; opacity:.9; }
+  .pad-btn { border:none; border-radius:12px; background:rgba(255,255,255,.10);
+    -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); color:#fff; font-size:22px;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .12s; }
+  .pad-btn:active { background:rgba(201,163,91,.75); }
+  #btn-fwd{grid-column:2;grid-row:1;} #btn-left{grid-column:1;grid-row:2;}
+  #btn-back{grid-column:2;grid-row:2;} #btn-right{grid-column:3;grid-row:2;}
+
+  #hint { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:8;
+    background:rgba(15,14,12,.6); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+    color:#e9e2d4; padding:8px 16px; border-radius:999px; font-size:13px;
+    border:1px solid rgba(201,163,91,.25); white-space:nowrap; }
+
+  #panel { position:fixed; top:0; right:0; height:100%; width:360px; max-width:86vw;
+    background:rgba(20,18,14,.93); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+    z-index:20; transform:translateX(105%); transition:transform .35s cubic-bezier(.2,.7,.2,1);
+    border-left:1px solid rgba(201,163,91,.3); color:#ece6da; padding:34px 30px; overflow-y:auto; }
+  #panel.open { transform:translateX(0); }
+  #panel .eyebrow { font-size:11px; letter-spacing:3px; text-transform:uppercase; color:#c9a35b; margin-bottom:12px; }
+  #panel h2 { font-size:24px; font-weight:600; line-height:1.2; margin-bottom:14px; word-break:break-word; }
+  #panel .desc { font-size:14px; line-height:1.6; color:#c7bfae; }
+  #panel-close { position:absolute; top:18px; right:18px; width:34px; height:34px; border:none;
+    border-radius:50%; background:rgba(255,255,255,.08); color:#fff; font-size:18px; cursor:pointer; }
+  #panel-close:active { background:rgba(201,163,91,.6); }
+
+  #loader { position:fixed; inset:0; z-index:50; background:#0f0e0c; color:#ece6da;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:28px; }
+  #loader .badge { font-size:12px; letter-spacing:4px; text-transform:uppercase; color:#c9a35b; margin-bottom:22px; }
+  #loader .bar { width:220px; height:4px; background:rgba(255,255,255,.12); border-radius:2px; overflow:hidden; }
+  #loader .fill { height:100%; width:0%; background:#c9a35b; transition:width .2s; }
+  #loader .pct { margin-top:14px; font-size:13px; color:#8f846f; }
+
+  #intro { position:fixed; inset:0; z-index:40; background:rgba(15,14,12,.72);
+    -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+    display:none; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:28px; color:#ece6da; }
+  #intro h1 { font-size:clamp(26px,6vw,42px); font-weight:600; margin-bottom:14px; }
+  #intro .keys { font-size:13px; color:#b9ac93; margin-bottom:28px; line-height:2; }
+  #intro .keys b { color:#ece6da; }
+  #enter { border:none; padding:14px 40px; border-radius:999px; cursor:pointer;
+    background:#c9a35b; color:#1a1710; font-size:15px; font-weight:600; letter-spacing:.5px; }
+  #enter:active { transform:scale(.97); }
+  #err { position:fixed; inset:0; z-index:60; background:#0f0e0c; color:#e9d6b0; display:none;
+    align-items:center; justify-content:center; text-align:center; padding:30px; font-size:14px; line-height:1.6; }
+</style>
+</head>
+<body>
+
+<div id="crosshair"></div>
+<div id="hint">Kéo màn hình để nhìn quanh · Bấm vào tranh để xem</div>
+
+<div id="pad">
+  <button class="pad-btn" id="btn-fwd">▲</button>
+  <button class="pad-btn" id="btn-left">◀</button>
+  <button class="pad-btn" id="btn-back">▼</button>
+  <button class="pad-btn" id="btn-right">▶</button>
+</div>
+
+<div id="panel">
+  <button id="panel-close">✕</button>
+  <div class="eyebrow">Bạn vừa chọn</div>
+  <h2 id="p-title"></h2>
+  <div class="desc" id="p-desc">Đây là tên của đối tượng trong mô hình. Về sau, mỗi bức tranh của bạn sẽ có tiêu đề, tác giả và mô tả riêng hiển thị ở đây.</div>
+</div>
+
+<div id="loader">
+  <div class="badge">Phòng tranh 3D</div>
+  <div class="bar"><div class="fill" id="fill"></div></div>
+  <div class="pct" id="pct">Đang tải không gian… 0%</div>
+</div>
+
+<div id="intro">
+  <h1>Sẵn sàng tham quan</h1>
+  <div class="keys">
+    Máy tính: <b>W A S D</b> / phím mũi tên để đi · kéo chuột để nhìn<br>
+    Điện thoại: <b>nút mũi tên</b> để đi · chạm kéo để nhìn<br>
+    Bấm/chạm vào một bức tranh để xem thông tin
+  </div>
+  <button id="enter">Vào phòng tranh</button>
+</div>
+
+<div id="err">Không tải được mô hình.<br>Trang này cần được mở qua một địa chỉ web (http/https) — hãy đưa cả thư mục lên hosting (xem README) thay vì mở trực tiếp file.</div>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/GLTFLoader.js"></script>
+<script src="lib/DRACOLoader.js"></script>
+<script>
+// ---------- Renderer / scene / camera ----------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f0e0c);
+
+const camera = new THREE.PerspectiveCamera(68, innerWidth/innerHeight, 0.05, 500);
+camera.rotation.order = "YXZ";
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+// ---------- Lighting (model is largely light-baked) ----------
+scene.add(new THREE.AmbientLight(0xffffff, 1.05));
+scene.add(new THREE.HemisphereLight(0xfff3e0, 0x4a3c2c, 0.45));
+const dir = new THREE.DirectionalLight(0xfff6e8, 0.45);
+dir.position.set(6, 12, 4);
+scene.add(dir);
+
+// ---------- Load the gallery ----------
+const draco = new THREE.DRACOLoader();
+draco.setDecoderPath("lib/draco/");
+draco.setDecoderConfig({ type:"wasm" });
+const loader = new THREE.GLTFLoader();
+loader.setDRACOLoader(draco);
+
+let bounds = { minX:-20, maxX:20, minZ:-20, maxZ:20 };
+const EYE = 1.6;
+const clickable = [];
+
+loader.load("gallery.glb",
+  (gltf) => {
+    const model = gltf.scene;
+    scene.add(model);
+
+    // world bounding box → spawn + movement limits
+    const box = new THREE.Box3().setFromObject(model);
+    const c = box.getCenter(new THREE.Vector3());
+    bounds = { minX: box.min.x + 0.6, maxX: box.max.x - 0.6,
+               minZ: box.min.z + 0.6, maxZ: box.max.z - 0.6 };
+    camera.position.set(c.x, box.min.y + EYE, c.z);
+
+    // collect meshes for click-to-inspect
+    model.traverse(o => { if (o.isMesh) clickable.push(o); });
+
+    document.getElementById("loader").style.display = "none";
+    document.getElementById("intro").style.display = "flex";
+    animate();
+  },
+  (xhr) => {
+    if (xhr.total) {
+      const p = Math.round(xhr.loaded / xhr.total * 100);
+      document.getElementById("fill").style.width = p + "%";
+      document.getElementById("pct").textContent = "Đang tải không gian… " + p + "%";
+    } else {
+      document.getElementById("pct").textContent = "Đang tải không gian…";
+    }
+  },
+  (e) => { console.error(e); document.getElementById("err").style.display = "flex"; }
+);
+
+// ---------- First-person controls ----------
+let yaw = 0, pitch = 0;
+const move = { f:0, b:0, l:0, r:0 };
+const keys = {};
+addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+addEventListener("keyup",   e => keys[e.key.toLowerCase()] = false);
+
+let dragging=false, lastX=0, lastY=0, moved=0, started=false;
+function onDown(x,y){ if(!started) return; dragging=true; lastX=x; lastY=y; moved=0; }
+function onMove(x,y){ if(!dragging) return;
+  const dx=x-lastX, dy=y-lastY; lastX=x; lastY=y; moved+=Math.abs(dx)+Math.abs(dy);
+  yaw   -= dx*0.0032;
+  pitch -= dy*0.0032;
+  pitch = Math.max(-1.2, Math.min(1.2, pitch));
+}
+function onUp(x,y){ if(!dragging) return; dragging=false; if(moved<8) selectAt(x,y); }
+const el = renderer.domElement;
+el.addEventListener("mousedown", e => onDown(e.clientX,e.clientY));
+addEventListener("mousemove", e => onMove(e.clientX,e.clientY));
+addEventListener("mouseup",   e => onUp(e.clientX,e.clientY));
+el.addEventListener("touchstart", e => { const t=e.touches[0]; onDown(t.clientX,t.clientY); }, {passive:true});
+el.addEventListener("touchmove",  e => { const t=e.touches[0]; onMove(t.clientX,t.clientY); }, {passive:true});
+el.addEventListener("touchend",   e => { const t=e.changedTouches[0]; onUp(t.clientX,t.clientY); }, {passive:true});
+
+function hold(id,key){ const b=document.getElementById(id);
+  const on=e=>{e.preventDefault(); move[key]=1;}, off=()=>{move[key]=0;};
+  b.addEventListener("touchstart",on,{passive:false}); b.addEventListener("touchend",off);
+  b.addEventListener("mousedown",on); b.addEventListener("mouseup",off); b.addEventListener("mouseleave",off);
+}
+hold("btn-fwd","f"); hold("btn-back","b"); hold("btn-left","l"); hold("btn-right","r");
+
+// ---------- Click to inspect ----------
+const raycaster = new THREE.Raycaster();
+function cleanName(n){ if(!n) return "Đối tượng"; return n.split("_")[0].trim() || n; }
+function selectAt(x,y){
+  const ndc = new THREE.Vector2((x/innerWidth)*2-1, -(y/innerHeight)*2+1);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(clickable, false);
+  if (hits.length) {
+    document.getElementById("p-title").textContent = cleanName(hits[0].object.name);
+    document.getElementById("panel").classList.add("open");
+  }
+}
+document.getElementById("panel-close").onclick = () => document.getElementById("panel").classList.remove("open");
+document.getElementById("enter").onclick = () => { document.getElementById("intro").style.display="none"; started=true; };
+
+// ---------- Loop ----------
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const speed = 3.6 * dt;
+  const fwd = (keys["w"]||keys["arrowup"]?1:0) + move.f - (keys["s"]||keys["arrowdown"]?1:0) - move.b;
+  const str = (keys["d"]||keys["arrowright"]?1:0) + move.r - (keys["a"]||keys["arrowleft"]?1:0) - move.l;
+  const f = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,yaw,0));
+  const rt = new THREE.Vector3(1,0,0).applyEuler(new THREE.Euler(0,yaw,0));
+  camera.position.addScaledVector(f, fwd*speed);
+  camera.position.addScaledVector(rt, str*speed);
+  camera.position.x = Math.max(bounds.minX, Math.min(bounds.maxX, camera.position.x));
+  camera.position.z = Math.max(bounds.minZ, Math.min(bounds.maxZ, camera.position.z));
+  camera.rotation.set(pitch, yaw, 0, "YXZ");
+  renderer.render(scene, camera);
+}
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
